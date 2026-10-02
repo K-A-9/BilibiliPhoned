@@ -1,0 +1,2370 @@
+// ==UserScript==
+// @name         哔哩哔哩电脑网页版手机端适配优化脚本
+// @namespace    http://tampermonkey.net/
+// @version      132.90
+// @description  B站电脑版网页手机界面适配
+// @author       K_A
+// @match        *://*.bilibili.com/*
+// @grant        none
+// @run-at       document-start
+// @license All Rights Reserved
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    /* ============================================================
+       页面识别
+       ============================================================ */
+    const isHome = () => {
+        const h = location.hostname, p = location.pathname;
+        return (h === 'www.bilibili.com' || h === 'bilibili.com') &&
+               (p === '/' || p === '/index.html' || p === '');
+    };
+    const isVideoPage = () => location.hostname === 'www.bilibili.com' && /^\/video\//.test(location.pathname);
+    const isListPage = () => location.hostname === 'www.bilibili.com' &&
+        (/^\/list\//.test(location.pathname) || /^\/medialist\/play\//.test(location.pathname));
+    const isBangumiPage = () => location.hostname === 'www.bilibili.com' && /^\/bangumi\/play\//.test(location.pathname);
+    const isTBiliDynamic = () => location.hostname === 't.bilibili.com';
+    const isMusicPage = () => {
+        const h = location.hostname, p = location.pathname;
+        if (h === 'www.bilibili.com' || h === 'bilibili.com') {
+            if (/^\/(audio|music)\//.test(p)) return true;
+        }
+        try { return !!document.querySelector('#music-container.audioplayer'); } catch (e) { return false; }
+    };
+    const isOpusPage = () => {
+        const h = location.hostname, p = location.pathname;
+        return (h === 'www.bilibili.com' || h === 'bilibili.com') &&
+               (/^\/opus\//.test(p) || /^\/read\//.test(p));
+    };
+    const isSearchPage = () => location.hostname === 'search.bilibili.com';
+    const isSpacePage = () => location.hostname === 'space.bilibili.com';
+    const isLiveRoomPage = () => {
+        if (location.hostname !== 'live.bilibili.com') return false;
+        const p = location.pathname;
+        if (/^\/(live-center|studio|activity|blackboard|h5|p)(\/|$)/.test(p)) return false;
+        return /^\/blanc\/\d+/.test(p) || /^\/\d+(\/|$)/.test(p);
+    };
+
+    // 需要保留 PC 原宽布局、允许横向滚动的页面
+    const isWideLayoutPage = () => {
+        const h = location.hostname, p = location.pathname;
+        if (h === 't.bilibili.com') return true;
+        if (h === 'space.bilibili.com') {
+            // 收藏 / 赞过
+            if (/\/favlist/.test(p)) return true;
+            // 历史（若在 space 域）
+            if (/\/history/.test(p)) return true;
+        }
+        if (h === 'www.bilibili.com' || h === 'bilibili.com') {
+            if (/\/account\/history/.test(p)) return true;
+            if (/\/watchlater/.test(p)) return true;
+            if (/\/v\/popular/.test(p)) return true;
+        }
+        if (h === 'account.bilibili.com') return true;
+        return false;
+    };
+
+    /* ============================================================
+       主样式
+       ============================================================ */
+    function injectStyle() {
+        if (document.getElementById('bili-mobile-style')) return;
+        const root = document.head || document.documentElement;
+        if (!root) { setTimeout(injectStyle, 0); return; }
+        const style = document.createElement('style');
+        style.id = 'bili-mobile-style';
+        style.textContent = `
+            html, body {
+                background-color: #ffffff !important;
+                width: 100% !important;
+                max-width: 100vw !important;
+                min-width: 0 !important;
+                overflow-x: hidden !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overscroll-behavior-y: none !important;
+            }
+            html { background-color: #ffffff !important; }
+            * { box-sizing: border-box !important; }
+
+            /* 隐藏 PC 头部 */
+            .bili-header, .international-header, .mini-header,
+            #biliMainHeader, .bili-header-m, .nav-menu,
+            #bili-header-container, .bili-header--mini, .bili-header--fixed {
+                display: none !important;
+                visibility: hidden !important;
+                height: 0 !important;
+                overflow: hidden !important;
+            }
+
+            /* 搜索栏 */
+            #my-bili-searchbar {
+                position: fixed !important;
+                top: 0 !important; left: 0 !important; right: 0 !important;
+                width: 100% !important; max-width: 100vw !important;
+                height: 52px !important;
+                background: #ffffff !important;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
+                z-index: 2147483646 !important;
+                display: flex !important;
+                align-items: center !important;
+                padding: 0 10px !important;
+                box-sizing: border-box !important;
+                gap: 8px !important;
+            }
+            body.bili-wide-page #my-bili-searchbar { display: none !important; }
+
+            #my-bili-dynamic-btn {
+                flex-shrink: 0 !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                height: 36px !important; padding: 0 10px !important;
+                background: #f1f2f3 !important; border-radius: 18px !important;
+                color: #18191c !important; text-decoration: none !important;
+                cursor: pointer !important; white-space: nowrap !important; user-select: none !important;
+            }
+            #my-bili-dynamic-btn:active { background: #e3e5e7 !important; }
+            #my-bili-dynamic-btn svg { width: 18px !important; height: 18px !important; flex-shrink: 0 !important; color: #18191c !important; }
+            #my-bili-searchbar .my-search-wrap {
+                flex: 1 !important; display: flex !important; align-items: center !important;
+                background: #f1f2f3 !important; border-radius: 20px !important;
+                height: 36px !important; padding: 0 6px 0 14px !important;
+                overflow: hidden !important; min-width: 0 !important;
+            }
+            #my-bili-searchbar #my-bili-search-input {
+                flex: 1 !important; border: none !important; outline: none !important;
+                background: transparent !important; font-size: 14px !important;
+                color: #18191c !important; height: 100% !important;
+                padding: 0 !important; margin: 0 !important; min-width: 0 !important;
+                -webkit-appearance: none !important; appearance: none !important;
+            }
+            #my-bili-searchbar #my-bili-search-input::placeholder { color: #9499a0 !important; }
+            #my-bili-searchbar .my-search-btn {
+                width: 32px !important; height: 32px !important; border-radius: 50% !important;
+                border: none !important; background: transparent !important;
+                color: #61666d !important; display: flex !important;
+                align-items: center !important; justify-content: center !important;
+                cursor: pointer !important; padding: 0 !important; flex-shrink: 0 !important;
+            }
+            #my-bili-order-btn, #my-bili-switch-btn {
+                flex-shrink: 0 !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                gap: 0 !important; width: 36px !important; min-width: 36px !important; max-width: 36px !important;
+                height: 36px !important; padding: 0 !important;
+                background: #f1f2f3 !important; border-radius: 50% !important;
+                color: #18191c !important; font-size: 13px !important;
+                cursor: pointer !important; white-space: nowrap !important; user-select: none !important;
+            }
+            #my-bili-order-btn:active, #my-bili-switch-btn:active { background: #e3e5e7 !important; }
+            #my-bili-order-btn svg, #my-bili-switch-btn svg { width: 18px !important; height: 18px !important; flex-shrink: 0 !important; }
+            .my-bili-menu-cb {
+                position: absolute !important; width: 0 !important; height: 0 !important;
+                opacity: 0 !important; pointer-events: none !important;
+                margin: 0 !important; padding: 0 !important; border: none !important;
+            }
+            #my-bili-order-btn .order-label, #my-bili-switch-btn .switch-label,
+            #my-bili-order-btn .my-bili-menu-caret, #my-bili-switch-btn .my-bili-menu-caret {
+                display: none !important;
+                width: 0 !important; height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important;
+            }
+            #my-bili-order-cb:checked ~ #my-bili-order-btn,
+            #my-bili-switch-cb:checked ~ #my-bili-switch-btn { background: #e3e5e7 !important; }
+            #my-bili-order-cb:checked ~ #my-bili-order-btn svg,
+            #my-bili-switch-cb:checked ~ #my-bili-switch-btn svg { color: #00aeec !important; }
+            .my-bili-menu-row {
+                display: none !important;
+                position: absolute !important;
+                top: 52px !important; left: 0 !important; right: 0 !important;
+                width: 100% !important; height: 52px !important;
+                padding: 0 10px !important; box-sizing: border-box !important;
+                background: #ffffff !important;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.10) !important;
+                align-items: center !important; gap: 8px !important;
+                z-index: 1 !important;
+            }
+            #my-bili-order-cb:checked ~ #my-bili-order-row,
+            #my-bili-switch-cb:checked ~ #my-bili-switch-row { display: flex !important; }
+            .my-bili-menu-item {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                height: 36px !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                background: #f1f2f3 !important; border-radius: 18px !important;
+                color: #61666d !important; font-size: 13px !important;
+                text-decoration: none !important; cursor: pointer !important;
+                white-space: nowrap !important; overflow: hidden !important;
+            }
+            .my-bili-menu-item.is-current { background: #00aeec !important; color: #ffffff !important; font-weight: 600 !important; }
+
+            body.bili-home-page { padding-top: 52px !important; }
+
+            /* 首页隐藏杂项 */
+            body.bili-home-page .banner,
+            body.bili-home-page .bili-banner,
+            body.bili-home-page .carousel,
+            body.bili-home-page .carousel-container,
+            body.bili-home-page .recommended-swipe,
+            body.bili-home-page .floor,
+            body.bili-home-page .bili-floor,
+            body.bili-home-page .fixed-sidebar,
+            body.bili-home-page .go-top,
+            body.bili-home-page .footer,
+            body.bili-home-page .bili-footer,
+            body.bili-home-page .international-footer,
+            body.bili-home-page .mini-footer,
+            body.bili-home-page .ad-report,
+            body.bili-home-page .ad-floor,
+            body.bili-home-page .channel-menu,
+            body.bili-home-page .nav-channel,
+            body.bili-home-page .header-channel,
+            body.bili-home-page .nav-bar,
+            body.bili-home-page .roll-btn,
+            body.bili-home-page .feed-roll-btn,
+            body.bili-home-page .bili-header__menu,
+            body.bili-home-page .bili-header__bar,
+            body.bili-home-page .banner-img,
+            body.bili-home-page .palette-button-outer,
+            body.bili-home-page [class*="right-side"],
+            body.bili-home-page [class*="right-bar"],
+            body.bili-home-page [class*="right-tool"],
+            body.bili-home-page [class*="side-tool"],
+            body.bili-home-page [class*="toolbar"],
+            body.bili-home-page [class*="feedback"],
+            body.bili-home-page [class*="back-top"],
+            body.bili-home-page [class*="to-top"] {
+                display: none !important; visibility: hidden !important;
+                height: 0 !important; min-height: 0 !important;
+                padding: 0 !important; margin: 0 !important; overflow: hidden !important;
+            }
+
+            /* 首页两列 */
+            body.bili-home-page .container,
+            body.bili-home-page .container.is-version8 {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100% !important; max-width: 100% !important;
+                padding: 8px !important; margin: 0 !important;
+                background-color: #f1f2f3 !important;
+                box-sizing: border-box !important;
+                align-items: start !important; align-content: start !important;
+                grid-auto-rows: auto !important;
+            }
+            body.bili-home-page .bili-feed4,
+            body.bili-home-page .bili-feed4-layout,
+            body.bili-home-page .feed2 {
+                width: 100% !important; max-width: 100% !important;
+                padding: 0 !important; margin: 0 !important;
+                box-sizing: border-box !important;
+            }
+            body.bili-home-page .bili-feed4 * { max-width: 100% !important; }
+            body.bili-home-page .container > .feed-card,
+            body.bili-home-page .container > .bili-feed-card { display: contents !important; }
+            body.bili-home-page .container > .feed-card:not(:has(.bili-video-card__wrap)):not(:has(.bili-live-card__wrap)),
+            body.bili-home-page .container > .bili-feed-card:not(:has(.bili-video-card__wrap)):not(:has(.bili-live-card__wrap)),
+            body.bili-home-page .container > .feed-card:has(.bili-video-card__info--ad),
+            body.bili-home-page .container > .feed-card:has([href^="//cm.bilibili.com/cm/api/"]),
+            body.bili-home-page .container > .bili-feed-card:has(.bili-video-card__info--ad),
+            body.bili-home-page .container > .bili-feed-card:has([href^="//cm.bilibili.com/cm/api/"]) {
+                display: none !important;
+            }
+
+            /* 搜索页基础 */
+            html:has(body.bili-search-page), body.bili-search-page {
+                width: 100vw !important; max-width: 100vw !important;
+                min-width: 0 !important; overflow-x: hidden !important;
+                padding: 0 !important; margin: 0 !important;
+                background-color: #f1f2f3 !important;
+            }
+            body.bili-search-page { padding-top: 52px !important; }
+            body.bili-search-page .bili-header,
+            body.bili-search-page .international-header,
+            body.bili-search-page .mini-header,
+            body.bili-search-page #biliMainHeader,
+            body.bili-search-page #bili-header-container,
+            body.bili-search-page .nav-menu,
+            body.bili-search-page .channel-menu,
+            body.bili-search-page .nav-channel,
+            body.bili-search-page .header-channel,
+            body.bili-search-page .nav-bar,
+            body.bili-search-page .footer,
+            body.bili-search-page .bili-footer,
+            body.bili-search-page .go-top,
+            body.bili-search-page [class*="back-top"],
+            body.bili-search-page [class*="to-top"],
+            body.bili-search-page [class*="right-side"],
+            body.bili-search-page [class*="right-bar"],
+            body.bili-search-page [class*="right-tool"],
+            body.bili-search-page [class*="side-tool"],
+            body.bili-search-page [class*="toolbar"],
+            body.bili-search-page [class*="feedback"],
+            body.bili-search-page .ad-report,
+            body.bili-search-page .fixed-sidebar {
+                display: none !important; visibility: hidden !important;
+                height: 0 !important; min-height: 0 !important;
+                padding: 0 !important; margin: 0 !important; overflow: hidden !important;
+            }
+            body.bili-search-page .search-condition,
+            body.bili-search-page .filter-wrap,
+            body.bili-search-page .search-filter,
+            body.bili-search-page .left-search-filter,
+            body.bili-search-page .search-page-left,
+            body.bili-search-page aside.left,
+            body.bili-search-page .search-header,
+            body.bili-search-page .search-navbar,
+            body.bili-search-page .search-hot,
+            body.bili-search-page .hot-search {
+                display: none !important; visibility: hidden !important;
+            }
+            body.bili-search-page * { max-width: 100% !important; box-sizing: border-box !important; }
+            body.bili-search-page img, body.bili-search-page video, body.bili-search-page picture {
+                max-width: 100% !important; height: auto !important;
+            }
+            html body.bili-search-page #app,
+            html body.bili-search-page #app > div,
+            html body.bili-search-page #search-app,
+            html body.bili-search-page #app .search-layout,
+            html body.bili-search-page #app .search-content,
+            html body.bili-search-page #app .search-page-wrapper,
+            html body.bili-search-page #app .search-page,
+            html body.bili-search-page #app .search-page > div,
+            html body.bili-search-page #app .video.i_wrapper,
+            html body.bili-search-page #app .i_wrapper,
+            html body.bili-search-page #app .search-all-list,
+            body.bili-search-page .i_wrapper,
+            body.bili-search-page .search-container,
+            body.bili-search-page .search-result,
+            body.bili-search-page .search-result-wrapper,
+            body.bili-search-page .search-page-container,
+            body.bili-search-page .search-page-content {
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                padding: 0 !important; margin: 0 !important;
+                box-sizing: border-box !important;
+                position: static !important;
+                overflow-x: hidden !important;
+                float: none !important;
+            }
+            html body.bili-search-page #app .video-list,
+            html body.bili-search-page #app .video-list.row,
+            html body.bili-search-page #app .search-video-list,
+            html body.bili-search-page #app .card-list,
+            html body.bili-search-page #app .search-result-list,
+            html body.bili-search-page #app ul.video-list {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100% !important; max-width: 100% !important;
+                padding: 8px !important; margin: 0 !important;
+                background-color: #f1f2f3 !important;
+                box-sizing: border-box !important;
+                align-items: start !important; align-content: start !important;
+                grid-auto-rows: auto !important;
+            }
+            html body.bili-search-page #app .video-list > *,
+            html body.bili-search-page #app .search-video-list > *,
+            html body.bili-search-page #app .search-result-list > *,
+            html body.bili-search-page #app ul.video-list > * {
+                display: block !important;
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                margin: 0 !important; padding: 0 !important;
+                float: none !important; position: static !important;
+            }
+            html body.bili-search-page #app .bili-video-card {
+                height: auto !important; max-height: none !important;
+                min-height: 172px !important;
+                width: 100% !important; max-width: 100% !important; min-width: 100% !important;
+                margin: 0 !important; padding: 0 !important;
+                display: block !important; align-self: start !important;
+                background: #ffffff !important; border: none !important;
+                border-radius: 8px !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+                overflow: hidden !important;
+                position: relative !important;
+                float: none !important;
+            }
+            body.bili-search-page .vui_pagenation,
+            body.bili-search-page .page-wrap {
+                display: flex !important; justify-content: center !important;
+                width: 100% !important; max-width: 100% !important;
+                padding: 8px 0 !important; margin: 0 !important;
+                box-sizing: border-box !important;
+            }
+            body.bili-search-page .vui_pagenation--btns {
+                display: flex !important; flex-wrap: nowrap !important;
+                justify-content: flex-start !important; align-items: center !important;
+                width: 100% !important; max-width: 100% !important;
+                padding: 0 8px !important; margin: 0 !important;
+                box-sizing: border-box !important; gap: 4px !important;
+                overflow-x: auto !important;
+            }
+            body.bili-search-page .vui_pagenation--btns::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+            body.bili-search-page .vui_pagenation--btn {
+                flex-shrink: 0 !important; flex-grow: 0 !important;
+                margin: 0 !important; min-width: 32px !important;
+                padding: 0 6px !important; height: 34px !important;
+                line-height: 34px !important; box-sizing: border-box !important;
+                white-space: nowrap !important; font-size: 13px !important;
+                text-align: center !important; border-radius: 4px !important;
+            }
+
+            /* 视频页基础 */
+            body.bili-video-page {
+                background: #ffffff !important;
+                overflow-x: hidden !important;
+                min-height: 100vh !important;
+                margin-top: 0 !important;
+                padding-top: 0 !important;
+                --video-equal-spacing: 24px;
+            }
+            body.bili-video-page,
+            body.bili-video-page #app,
+            body.bili-video-page #app > div,
+            body.bili-video-page #mirror-vdcon.video-container-v1,
+            body.bili-video-page .left-container,
+            body.bili-video-page .left-container.scroll-sticky {
+                width: 100vw !important; max-width: 100vw !important; min-width: 100vw !important;
+                overflow-x: hidden !important;
+                box-sizing: border-box !important;
+                margin: 0 !important; padding: 0 !important;
+                left: 0 !important; right: 0 !important;
+                position: relative !important;
+            }
+            body.bili-video-page .left-container,
+            body.bili-video-page .left-container.scroll-sticky {
+                padding: 0 8px !important;
+            }
+            body.bili-video-page #viewbox_report {
+                margin-top: 12px !important;
+                margin-bottom: 12px !important;
+                padding-top: 0 !important;
+            }
+            body.bili-video-page #playerWrap {
+                width: 100% !important; max-width: 100% !important;
+                height: calc((100vw - 22px) * 9 / 16 + 6px) !important;
+                max-height: calc((100vw - 22px) * 9 / 16 + 6px) !important;
+                min-width: 0 !important; min-height: 0 !important;
+                overflow: hidden !important;
+                box-sizing: border-box !important;
+                border: 3px solid #00aeec !important;
+                border-radius: 12px !important;
+                box-shadow: 0 4px 16px rgba(0, 174, 236, 0.25) !important;
+                margin-top: 0 !important;
+                margin-bottom: 12px !important;
+                position: relative !important;
+            }
+
+            /* 禁用 B 站原生小窗浮动播放器 */
+            body.bili-video-page .bpx-player-docker,
+            body.bili-video-page .bpx-player-docker-body,
+            body.bili-video-page .bpx-player-docker-wrap,
+            body.bili-video-page .bpx-player-docker-header,
+            body.bili-video-page .bpx-player-container.bpx-player-mini,
+            body.bili-video-page .bpx-player-container[data-screen="mini"],
+            body.bili-video-page .bpx-player-container[data-screen="mini-screen"],
+            body.bili-video-page.bpx-player-docked .bpx-player-docker,
+            body.bili-video-page.bpx-player-docked .bpx-player-docker-body {
+                position: static !important;
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                height: 100% !important; max-height: 100% !important; min-height: 0 !important;
+                left: auto !important; top: auto !important; right: auto !important; bottom: auto !important;
+                transform: none !important; translate: none !important; scale: none !important;
+                z-index: auto !important; box-shadow: none !important; border-radius: 0 !important;
+                opacity: 1 !important; visibility: visible !important; display: block !important;
+            }
+            body.bili-video-page .bpx-player-docker { display: none !important; height: 0 !important; }
+
+            body.bili-video-page #playerWrap #bilibili-player-placeholder,
+            body.bili-video-page #playerWrap #bilibili-player,
+            body.bili-video-page #playerWrap .bpx-docker,
+            body.bili-video-page #playerWrap .bpx-player-container,
+            body.bili-video-page #playerWrap .bpx-player-primary-area,
+            body.bili-video-page #playerWrap .bpx-player-video-area,
+            body.bili-video-page #playerWrap .bpx-player-video-wrap {
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                height: 100% !important; max-height: 100% !important; min-height: 0 !important;
+                padding: 0 !important; margin: 0 !important;
+                box-sizing: border-box !important;
+                transform: none !important; zoom: normal !important;
+                border-radius: 0 !important;
+            }
+            body.bili-video-page #playerWrap video {
+                width: 100% !important; height: 100% !important;
+                object-fit: contain !important; display: block !important;
+                margin: 0 !important; padding: 0 !important;
+                background-color: #000 !important;
+            }
+
+            /* 隐藏视频页杂项 */
+            body.bili-video-page #biliMainHeader,
+            body.bili-video-page .bili-header,
+            body.bili-video-page .international-header,
+            body.bili-video-page .mini-header,
+            body.bili-video-page .nav-menu,
+            body.bili-video-page .fixed-sidenav-storage,
+            body.bili-video-page .video-note-sidebar-panel,
+            body.bili-video-page .go-top,
+            body.bili-video-page .bili-footer,
+            body.bili-video-page .footer,
+            body.bili-video-page [class*="back-top"],
+            body.bili-video-page [class*="to-top"] {
+                display: none !important; visibility: hidden !important;
+                height: 0 !important; overflow: hidden !important;
+            }
+            body.bili-video-page .video-resource-list,
+            body.bili-video-page .activity-m-v1 {
+                display: none !important; visibility: hidden !important;
+                height: 0 !important; min-height: 0 !important;
+                padding: 0 !important; margin: 0 !important; overflow: hidden !important;
+            }
+            body.bili-video-page .right-container #danmukuBox,
+            body.bili-video-page .right-container .video-pod-above-modules {
+                display: none !important; visibility: hidden !important;
+                height: 0 !important; overflow: hidden !important;
+                margin: 0 !important; padding: 0 !important;
+            }
+
+            /* 播放器控制栏 */
+            body.bili-video-page .bpx-player-ctrl-pip,
+            body.bili-video-page .bpx-player-ctrl-wide,
+            body.bili-video-page .bpx-player-ctrl-eplist { display: none !important; }
+            body.bili-video-page div.bpx-player-control-bottom {
+                height: 29px !important;
+                margin-top: 7px !important;
+                padding: 0 7px !important;
+            }
+            body.bili-video-page div.bpx-player-control-top {
+                transition: opacity 0.2s ease !important;
+                bottom: 36px;
+            }
+            body.bili-video-page .bpx-player-control-bottom-left,
+            body.bili-video-page .bpx-player-control-bottom-right { flex: unset !important; }
+            body.bili-video-page .bpx-player-ctrl-quality {
+                min-width: 0;
+                flex: auto !important;
+                margin-right: 0 !important;
+            }
+            body.bili-video-page .bpx-player-ctrl-quality-result,
+            body.bili-video-page .bpx-player-ctrl-playbackrate { font-size: 12px !important; }
+            body.bili-video-page .bpx-player-ctrl-quality-result { height: 22px; overflow: hidden; }
+            body.bili-video-page .bpx-player-progress-wrap {
+                height: 7px !important;
+                padding-bottom: 3px !important;
+            }
+            body.bili-video-page .bpx-player-control-mask {
+                background: linear-gradient(rgba(0,0,0,0) 0%, rgba(0,0,0,0.5) 100%) !important;
+            }
+            body.bili-video-page .bpx-player-ctrl-quality-menu-wrap { bottom: 22px !important; }
+            body.bili-video-page .bpx-player-ctrl-playbackrate-menu { bottom: 22px !important; }
+            body.bili-video-page .bpx-player-ctrl-setting-box { bottom: 0 !important; right: 0 !important; }
+            body.bili-video-page .bpx-player-control-wrap:not(.new) { display: none; }
+            body.bili-video-page .bpx-player-control-entity,
+            body.bili-video-page .bpx-player-control-mask { display: block !important; }
+            body.bili-video-page .bpx-player-container[ctrl-shown=false] .bpx-player-control-wrap .bpx-player-control-mask {
+                opacity: 0; transition: opacity .2s ease-in;
+            }
+            body.bili-video-page .bpx-player-container[ctrl-shown=true] .bpx-player-control-wrap .bpx-player-control-mask { opacity: 1; }
+            body.bili-video-page .bpx-player-container[ctrl-shown=true] .bpx-player-control-entity .bpx-player-control-bottom {
+                opacity: 1; display: flex;
+            }
+            body.bili-video-page .bpx-player-container[ctrl-shown=false] .bpx-player-control-entity .bpx-player-control-bottom { display: none; }
+            body.bili-video-page .bpx-player-video-perch { max-height: 0; }
+            body.bili-video-page .bpx-player-top-wrap,
+            body.bili-video-page .bpx-player-state-wrap { display: none !important; }
+            body.bili-video-page .bpx-player-container,
+            body.bili-video-page #bilibili-player-placeholder { box-shadow: none !important; }
+
+            /* 视频原生全屏 */
+            body.video-fullscreen { overflow: hidden !important; }
+            body.video-fullscreen #mirror-vdcon,
+            body.video-fullscreen .left-container {
+                width: 100vw !important; max-width: 100vw !important; min-width: 100vw !important;
+                height: 100vh !important; min-height: 0 !important;
+                padding: 0 !important; margin: 0 !important; overflow: hidden !important;
+            }
+            body.video-fullscreen #playerWrap {
+                width: 100vw !important; max-width: 100vw !important;
+                height: 100vh !important; max-height: 100vh !important; min-height: 100vh !important;
+                border: none !important; border-radius: 0 !important;
+                box-shadow: none !important; overflow: hidden !important;
+                margin: 0 !important;
+                position: static !important;
+            }
+            body.video-fullscreen #playerWrap #bilibili-player-placeholder,
+            body.video-fullscreen #playerWrap #bilibili-player,
+            body.video-fullscreen #playerWrap .bpx-docker,
+            body.video-fullscreen #playerWrap .bpx-player-container,
+            body.video-fullscreen #playerWrap .bpx-player-primary-area,
+            body.video-fullscreen #playerWrap .bpx-player-video-area,
+            body.video-fullscreen #playerWrap .bpx-player-video-wrap {
+                width: 100% !important; height: 100% !important;
+                max-width: 100% !important; max-height: 100% !important;
+                min-width: 0 !important; min-height: 0 !important;
+            }
+            body.video-fullscreen .bpx-player-video-wrap video { object-fit: contain !important; }
+
+            /* 网页全屏：铺满 */
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) {
+                overflow: hidden !important;
+                height: 100vh !important;
+                padding: 0 !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) #playerWrap {
+                position: fixed !important;
+                top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+                width: 100vw !important; max-width: 100vw !important;
+                height: 100vh !important; max-height: 100vh !important;
+                min-height: 100vh !important;
+                border: none !important; border-radius: 0 !important;
+                box-shadow: none !important;
+                margin: 0 !important;
+                z-index: 2147483600 !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) #my-bili-bottom-nav,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) #my-bili-searchbar,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) #my-bili-dyn-upbar {
+                display: none !important; visibility: hidden !important;
+            }
+
+            /* 网页全屏：隐藏所有弹幕功能 */
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-sending-area,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-sending-bar,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-dm-root,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-video-inputbar,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-dm-setting-wrap,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-dm-setting,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-ctrl-subtitle-box,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-ctrl-dm-setting,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-bottom-center,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) [class*="bpx-player-dm"] {
+                display: none !important;
+                visibility: hidden !important;
+                height: 0 !important; min-height: 0 !important; max-height: 0 !important;
+                width: 0 !important; min-width: 0 !important;
+                padding: 0 !important; margin: 0 !important;
+                overflow: hidden !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-bottom,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-bottom-left,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-bottom-right {
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                display: flex !important; align-items: center !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-bottom-right {
+                justify-content: flex-end !important;
+                margin-left: auto !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-bottom-left {
+                flex: 0 0 auto !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-wrap {
+                z-index: 2147483600 !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-control-bottom {
+                padding: 0 12px !important;
+                height: 40px !important;
+                margin-top: 0 !important;
+            }
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-ctrl-playbackrate,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-ctrl-volume,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-ctrl-web,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) .bpx-player-ctrl-full {
+                display: flex !important;
+                visibility: visible !important;
+                flex-shrink: 0 !important;
+            }
+
+            /* 右侧抽屉 */
+            body.bili-video-page .right-container,
+            body.bili-bangumi-page .plp-r-wrap {
+                position: fixed !important;
+                top: 0 !important; right: 0 !important; bottom: 0 !important; left: auto !important;
+                width: 85vw !important; max-width: 420px !important;
+                height: 100vh !important; max-height: 100vh !important;
+                overflow-y: auto !important; overflow-x: hidden !important;
+                background: #ffffff !important;
+                z-index: 99999 !important;
+                transform: translate3d(100%, 0, 0) !important;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15) !important;
+                box-sizing: border-box !important;
+                display: block !important;
+                padding: 12px !important;
+            }
+            body.bili-video-page .right-container.show,
+            body.bili-bangumi-page .plp-r-wrap.show { transform: translate3d(0, 0, 0) !important; }
+            body.bili-video-page .right-container .right-container-inner {
+                position: static !important; top: auto !important; height: auto !important;
+                padding: 12px !important;
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+            body.bili-video-page .right-container img,
+            body.bili-video-page .right-container video,
+            body.bili-video-page .right-container picture { max-width: 100% !important; height: auto !important; }
+            body.bili-video-page .right-container .send-msg,
+            body.bili-video-page .right-container a.send-msg {
+                display: none !important; visibility: hidden !important;
+            }
+
+            /* 视频页工具栏改造 */
+            body.bili-video-page #arc_toolbar_report,
+            body.bili-video-page .video-toolbar-container {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: stretch !important;
+                justify-content: space-around !important;
+                width: 100% !important; max-width: 100% !important;
+                padding: 6px 4px !important;
+                margin: 8px 0 12px 0 !important;
+                background: #ffffff !important;
+                border-radius: 10px !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+                box-sizing: border-box !important;
+                gap: 4px !important;
+                height: auto !important; min-height: 0 !important;
+                visibility: visible !important; overflow: visible !important;
+                opacity: 1 !important;
+                position: static !important;
+            }
+            body.bili-video-page .video-toolbar-right { display: none !important; }
+            body.bili-video-page .video-toolbar-left {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: stretch !important;
+                justify-content: space-around !important;
+                width: 100% !important; max-width: 100% !important;
+                margin: 0 !important; padding: 0 !important;
+                gap: 4px !important;
+                height: auto !important;
+                box-sizing: border-box !important;
+            }
+            body.bili-video-page .video-toolbar-left-item {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important; justify-content: center !important;
+                gap: 2px !important;
+                padding: 6px 2px !important;
+                margin: 0 !important;
+                height: auto !important;
+                min-height: 56px !important;
+                border: none !important;
+                background: transparent !important;
+                color: #61666d !important;
+                font-size: 11px !important;
+                line-height: 14px !important;
+                border-radius: 8px !important;
+                cursor: pointer !important;
+                box-sizing: border-box !important;
+                text-decoration: none !important;
+                overflow: visible !important;
+            }
+            body.bili-video-page .video-toolbar-left-item:hover,
+            body.bili-video-page .video-toolbar-left-item:active { background: #f1f2f3 !important; }
+            body.bili-video-page .video-toolbar-left-item svg,
+            body.bili-video-page .video-toolbar-left-item .icon {
+                width: 22px !important; height: 22px !important;
+                display: block !important;
+                color: inherit !important;
+            }
+            body.bili-video-page .video-toolbar-left-item.on,
+            body.bili-video-page .video-toolbar-left-item.active { color: #00aeec !important; }
+            body.bili-video-page .video-toolbar-left-item.video-watch-later,
+            body.bili-video-page .video-toolbar-left-item.watch-later,
+            body.bili-video-page .video-toolbar-left-item.video-note,
+            body.bili-video-page .video-toolbar-left-item.note,
+            body.bili-video-page .video-toolbar-left-item.video-dislike,
+            body.bili-video-page .video-toolbar-left-item.dislike {
+                display: none !important;
+            }
+
+            /* UP 主单行 */
+            body.bili-video-page #viewbox_report .up-info,
+            body.bili-video-page #viewbox_report .up-info-container,
+            body.bili-video-page #viewbox_report .up-info__detail,
+            body.bili-video-page #viewbox_report .up-detail,
+            body.bili-video-page #viewbox_report .up-detail-top,
+            body.bili-video-page #viewbox_report .up-info__avatar,
+            body.bili-video-page #viewbox_report .up-info__right,
+            body.bili-video-page #viewbox_report .up-info__btn-panel,
+            body.bili-video-page #viewbox_report .upinfo-btn-panel {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                overflow: hidden !important;
+                box-sizing: border-box !important;
+                white-space: nowrap !important;
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: none !important;
+            }
+            body.bili-video-page #viewbox_report .up-info__detail,
+            body.bili-video-page #viewbox_report .up-detail {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                justify-content: center !important;
+                gap: 0 !important;
+            }
+            body.bili-video-page #viewbox_report .up-name,
+            body.bili-video-page #viewbox_report .up-name a,
+            body.bili-video-page #viewbox_report .up-info__detail > *,
+            body.bili-video-page #viewbox_report .up-detail-top > * {
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                flex-shrink: 0 !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+            }
+            body.bili-video-page #viewbox_report .up-name {
+                font-size: 14px !important;
+                line-height: 20px !important;
+                font-weight: 600 !important;
+                color: #18191c !important;
+            }
+            body.bili-video-page #viewbox_report .up-description,
+            body.bili-video-page #viewbox_report .up-info__desc {
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                max-width: 100% !important;
+                font-size: 12px !important;
+                color: #9499a0 !important;
+                line-height: 16px !important;
+            }
+            body.bili-video-page #viewbox_report .up-avatar,
+            body.bili-video-page #viewbox_report .up-info__avatar a,
+            body.bili-video-page #viewbox_report .up-info__avatar img {
+                flex: 0 0 40px !important;
+                width: 40px !important; min-width: 40px !important; max-width: 40px !important;
+                height: 40px !important;
+                border-radius: 50% !important;
+                overflow: hidden !important;
+                object-fit: cover !important;
+            }
+            body.bili-video-page #viewbox_report .up-info__btn-panel .follow-btn,
+            body.bili-video-page #viewbox_report .upinfo-btn-panel .follow-btn,
+            body.bili-video-page #viewbox_report .follow-btn {
+                flex: 0 0 auto !important;
+                display: inline-flex !important;
+                align-items: center !important; justify-content: center !important;
+                height: 30px !important;
+                padding: 0 12px !important;
+                border-radius: 15px !important;
+                background: #00aeec !important;
+                color: #fff !important;
+                border: none !important;
+                font-size: 12px !important;
+                cursor: pointer !important;
+                white-space: nowrap !important;
+            }
+
+            body.bili-video-page h1.video-title {
+                width: 100% !important; display: block !important;
+                text-align: center !important;
+                font-size: 15px !important;
+                line-height: 22px !important;
+                height: auto !important; max-height: none !important;
+                overflow: visible !important;
+                -webkit-line-clamp: unset !important;
+                white-space: normal !important;
+                word-break: break-all !important;
+                padding: 0 !important;
+                margin: 4px 0 8px 0 !important;
+            }
+            body.bili-video-page #viewbox_report .video-info-detail-list > .item:not(.pubdate-ip) {
+                display: none !important;
+            }
+            body.bili-video-page #viewbox_report .video-info-meta,
+            body.bili-video-page #viewbox_report .video-info-detail-list {
+                display: flex !important; justify-content: center !important;
+                align-items: center !important;
+                width: 100% !important; text-align: center !important;
+                margin: 0 auto !important; padding: 0 !important; float: none !important;
+            }
+            body.bili-video-page #viewbox_report .video-info-detail-list .item {
+                float: none !important;
+                display: inline-flex !important;
+                align-items: center !important; justify-content: center !important;
+            }
+            body.bili-video-page .video-tag-container,
+            body.bili-video-page .tag-panel {
+                display: none !important; visibility: hidden !important;
+                height: 0 !important; min-height: 0 !important;
+                padding: 0 !important; margin: 0 !important; overflow: hidden !important;
+            }
+
+            body.bili-video-page #v_desc {
+                margin-top: 0 !important;
+                margin-bottom: 12px !important;
+                padding: 0 8px !important;
+            }
+            body.bili-video-page #v_desc .basic-desc-info,
+            body.bili-video-page #v_desc .desc-info-text {
+                height: auto !important; max-height: none !important;
+                overflow: visible !important;
+                -webkit-line-clamp: unset !important;
+                -webkit-box-orient: unset !important;
+                text-overflow: clip !important;
+                white-space: pre-wrap !important;
+                word-break: break-all !important;
+            }
+            body.bili-video-page #v_desc .toggle-btn,
+            body.bili-video-page #v_desc .toggle-btn-text { display: none !important; }
+
+            /* 评论区保留 */
+            body.bili-video-page #commentapp,
+            body.bili-video-page #commentapp bili-comments,
+            body.bili-video-page #commentapp .bili-comment-container,
+            body.bili-video-page #commentapp .comment-container {
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                box-sizing: border-box !important;
+                padding-left: 8px !important; padding-right: 8px !important;
+                overflow: hidden !important;
+                display: block !important;
+                visibility: visible !important;
+                height: auto !important;
+            }
+
+            #my-bili-right-mask {
+                position: fixed !important;
+                top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+                width: 100vw !important; height: 100vh !important;
+                background: rgba(0, 0, 0, 0.35) !important;
+                z-index: 99998 !important;
+                opacity: 0 !important; visibility: hidden !important;
+                pointer-events: none !important;
+                transition: opacity 0.3s ease !important;
+                display: block !important;
+            }
+            #my-bili-right-mask.show {
+                opacity: 1 !important; visibility: visible !important; pointer-events: auto !important;
+            }
+
+            /* 通用卡片 */
+            body.bili-home-page .container .bili-video-card,
+            body.bili-home-page .container .bili-live-card,
+            body.bili-search-page .bili-video-card,
+            body.bili-search-page .bili-live-card,
+            body.bili-space-page .bili-video-card,
+            body.bili-space-page .bili-live-card {
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                height: auto !important; max-height: none !important; min-height: 0 !important;
+                margin: 0 !important; padding: 0 !important;
+                display: block !important;
+                background: #ffffff !important; border: none !important;
+                border-radius: 8px !important;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+                overflow: hidden !important;
+                box-sizing: border-box !important;
+                position: relative !important;
+                float: none !important;
+            }
+            body.bili-home-page .bili-video-card__info--tit,
+            body.bili-home-page .bili-video-card__info--tit a,
+            body.bili-search-page .bili-video-card__info--tit,
+            body.bili-search-page .bili-video-card__info--tit a {
+                display: -webkit-box !important;
+                -webkit-line-clamp: 2 !important;
+                -webkit-box-orient: vertical !important;
+                overflow: hidden !important;
+                text-align: center !important;
+                font-size: 13px !important; line-height: 18px !important;
+                min-height: 36px !important; max-height: 36px !important;
+                color: #18191c !important; font-weight: 500 !important;
+                margin: 0 !important; padding: 0 !important;
+                word-break: break-all !important;
+                width: 100% !important;
+            }
+
+            /* 空间页 */
+            html:has(body.bili-space-page), body.bili-space-page {
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important;
+                overflow-x: hidden !important;
+                margin: 0 !important; padding: 0 !important;
+                background: #f1f2f3 !important;
+            }
+            body.bili-space-page { padding-top: 0 !important; }
+            body.bili-space-page > #app {
+                padding-top: 52px !important; box-sizing: border-box !important; margin-top: 0 !important;
+            }
+            body.bili-space-page .bili-header,
+            body.bili-space-page .international-header,
+            body.bili-space-page .mini-header,
+            body.bili-space-page #biliMainHeader,
+            body.bili-space-page #bili-header-container,
+            body.bili-space-page .footer,
+            body.bili-space-page .bili-footer,
+            body.bili-space-page .go-top,
+            body.bili-space-page [class*="back-top"],
+            body.bili-space-page [class*="to-top"],
+            body.bili-space-page .fixed-sidebar,
+            body.bili-space-page .side-toolbar,
+            body.bili-space-page .right-sidebar-wrap {
+                display: none !important; visibility: hidden !important;
+                height: 0 !important; overflow: hidden !important;
+            }
+            body.bili-space-page .space-home > .aside,
+            body.bili-space-page main.space-main .aside {
+                display: none !important; visibility: hidden !important;
+                width: 0 !important; max-width: 0 !important; min-width: 0 !important;
+                height: 0 !important;
+                padding: 0 !important; margin: 0 !important; overflow: hidden !important;
+                flex: 0 0 0 !important;
+            }
+            body.bili-space-page .space-home > .content {
+                display: block !important;
+                width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+                flex: 1 1 100% !important;
+                padding: 0 8px 0 8px !important; margin: 0 !important;
+                box-sizing: border-box !important;
+            }
+            body.bili-space-page .masterpiece-block,
+            body.bili-space-page .items,
+            body.bili-space-page .video-list__content,
+            body.bili-space-page .article-list {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                padding: 0 !important; margin: 0 !important;
+                width: 100% !important; max-width: 100% !important;
+                box-sizing: border-box !important;
+                align-items: start !important; align-content: start !important;
+                grid-auto-rows: auto !important;
+            }
+            body.bili-space-page img,
+            body.bili-space-page video,
+            body.bili-space-page picture { max-width: 100% !important; height: auto !important; }
+
+            /* 底栏 */
+            body:not(.video-fullscreen) #my-bili-bottom-nav {
+                position: fixed !important;
+                left: 0 !important; right: 0 !important; bottom: 0 !important;
+                width: 100% !important; max-width: 100vw !important;
+                height: 52px !important;
+                background: #ffffff !important;
+                box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.10) !important;
+                z-index: 2147483646 !important;
+                display: flex !important;
+                align-items: center !important; justify-content: space-around !important;
+                box-sizing: border-box !important;
+                padding: 0 4px !important;
+                padding-bottom: env(safe-area-inset-bottom, 0) !important;
+                border-top: 1px solid #e3e5e7 !important;
+                user-select: none !important;
+            }
+            body.video-fullscreen #my-bili-bottom-nav,
+            body.bili-video-page:has(.bpx-player-container[data-screen="web"]) #my-bili-bottom-nav,
+            body.bili-live-room-page.bili-live-fs #my-bili-bottom-nav {
+                display: none !important; visibility: hidden !important;
+            }
+            #my-bili-bottom-nav .my-bn-item {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                height: 100% !important;
+                display: flex !important; flex-direction: column !important;
+                align-items: center !important; justify-content: center !important;
+                gap: 1px !important;
+                margin: 0 !important; padding: 0 !important;
+                border: none !important; background: transparent !important;
+                color: #61666d !important;
+                font-size: 10px !important; line-height: 12px !important;
+                text-decoration: none !important;
+                cursor: pointer !important;
+                box-sizing: border-box !important;
+                font-family: inherit !important;
+            }
+            #my-bili-bottom-nav .my-bn-item:active { background: #f1f2f3 !important; }
+            #my-bili-bottom-nav .my-bn-icon {
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                width: 22px !important; height: 22px !important; line-height: 0 !important;
+            }
+            #my-bili-bottom-nav .my-bn-icon svg {
+                width: 22px !important; height: 22px !important;
+                display: block !important; color: inherit !important;
+            }
+            #my-bili-bottom-nav .my-bn-text {
+                display: block !important;
+                font-size: 10px !important; line-height: 12px !important;
+                color: inherit !important; white-space: nowrap !important;
+            }
+            #my-bili-bottom-nav .my-bn-item.is-active {
+                color: #00aeec !important; font-weight: 600 !important;
+            }
+            #my-bili-bottom-nav .my-bn-icon.spinning svg {
+                animation: my-bn-spin 0.8s linear infinite !important;
+            }
+            @keyframes my-bn-spin {
+                from { transform: rotate(0deg); }
+                to   { transform: rotate(360deg); }
+            }
+            body:not(.video-fullscreen):not(.bili-music-page) {
+                padding-bottom: 60px !important;
+            }
+
+            /* "我的"面板 */
+            #my-bili-mine-panel {
+                position: fixed !important;
+                top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+                width: 100vw !important; height: 100vh !important;
+                z-index: 2147483647 !important;
+                display: none !important; visibility: hidden !important; pointer-events: none !important;
+            }
+            #my-bili-mine-panel.show {
+                display: block !important; visibility: visible !important; pointer-events: auto !important;
+            }
+            #my-bili-mine-panel .mp-mask {
+                position: absolute !important;
+                top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+                width: 100% !important; height: 100% !important;
+                background: rgba(0, 0, 0, 0.35) !important;
+                opacity: 0 !important;
+                transition: opacity 0.25s ease !important;
+            }
+            #my-bili-mine-panel.show .mp-mask { opacity: 1 !important; }
+            #my-bili-mine-panel .mp-sheet {
+                position: absolute !important;
+                left: 0 !important; right: 0 !important; bottom: 0 !important;
+                width: 100% !important; max-width: 100vw !important;
+                background: #ffffff !important;
+                border-radius: 16px 16px 0 0 !important;
+                padding: 12px 8px !important;
+                padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+                box-sizing: border-box !important;
+                transform: translateY(100%) !important;
+                transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.18) !important;
+                max-height: 85vh !important;
+                overflow-x: auto !important; overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+            }
+            #my-bili-mine-panel.show .mp-sheet { transform: translateY(0) !important; }
+            #my-bili-mine-panel .mp-sheet::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
+            #my-bili-mine-panel .mp-sheet::-webkit-scrollbar-track { background: transparent !important; }
+            #my-bili-mine-panel .mp-sheet::-webkit-scrollbar-thumb {
+                background: rgba(0,0,0,0.20) !important; border-radius: 3px !important;
+            }
+            #my-bili-mine-panel .mp-title {
+                text-align: center !important;
+                font-size: 14px !important; color: #9499a0 !important;
+                padding: 8px 0 12px !important; font-weight: 500 !important;
+            }
+            #my-bili-mine-panel .mp-list {
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 8px !important;
+                width: 100% !important;
+                min-width: max-content !important;
+                padding: 0 4px 8px !important;
+                box-sizing: border-box !important;
+            }
+            #my-bili-mine-panel .mp-item {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important; justify-content: center !important;
+                gap: 6px !important;
+                flex: 0 0 auto !important;
+                min-width: 72px !important; width: 72px !important;
+                padding: 12px 4px !important;
+                margin: 0 !important;
+                border: none !important;
+                background: #f6f7f8 !important;
+                color: #18191c !important;
+                font-size: 12px !important;
+                text-decoration: none !important;
+                border-radius: 12px !important;
+                box-sizing: border-box !important;
+                cursor: pointer !important;
+                font-family: inherit !important;
+                text-align: center !important;
+            }
+            #my-bili-mine-panel .mp-item:active { background: #e3e5e7 !important; }
+            #my-bili-mine-panel .mp-item svg {
+                width: 22px !important; height: 22px !important;
+                color: #00aeec !important; flex-shrink: 0 !important;
+            }
+            #my-bili-mine-panel .mp-item span {
+                display: block !important;
+                font-size: 12px !important;
+                color: inherit !important;
+                white-space: nowrap !important;
+                line-height: 16px !important;
+            }
+            #my-bili-mine-panel .mp-close {
+                display: flex !important;
+                align-items: center !important; justify-content: center !important;
+                width: 100% !important;
+                padding: 12px 0 !important;
+                margin: 6px 0 0 !important;
+                border: none !important;
+                background: #f1f2f3 !important;
+                color: #61666d !important;
+                font-size: 14px !important;
+                border-radius: 10px !important;
+                cursor: pointer !important;
+                font-family: inherit !important;
+            }
+
+            /* 动态页顶栏（已去掉左右箭头） */
+            #my-bili-dyn-upbar {
+                position: fixed !important;
+                top: 0 !important; left: 0 !important; right: 0 !important;
+                width: auto !important; max-width: none !important;
+                min-width: 1240px !important;
+                height: 82px !important;
+                background: #ffffff !important;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08) !important;
+                z-index: 2147483645 !important;
+                display: flex !important;
+                align-items: center !important;
+                padding: 8px 12px !important;
+                box-sizing: border-box !important;
+                gap: 0 !important;
+            }
+            #my-bili-dyn-upbar .du-scroll {
+                display: flex !important;
+                align-items: center !important;
+                gap: 12px !important;
+                flex: 1 1 auto !important;
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                height: 100% !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                white-space: nowrap !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: none !important;
+                -ms-overflow-style: none !important;
+                position: relative !important;
+                z-index: 1 !important;
+            }
+            #my-bili-dyn-upbar .du-scroll::-webkit-scrollbar {
+                display: none !important; width: 0 !important; height: 0 !important;
+            }
+
+            body.bili-dynamic-page {
+                padding-top: 90px !important;
+                background: #f4f5f7 !important;
+            }
+            body.bili-dynamic-page #app,
+            body.bili-dynamic-page .bili-dyn-home--member,
+            body.bili-dynamic-page .bili-dyn-home--member > main,
+            body.bili-dynamic-page .bili-dyn-list,
+            body.bili-dynamic-page .bili-dyn-list__items {
+                padding-top: 0 !important;
+                margin-top: 0 !important;
+            }
+            body.bili-dynamic-page .bili-dyn-list__items {
+                padding: 8px 0 8px 0 !important;
+            }
+            #my-bili-dyn-upbar .du-item {
+                flex: 0 0 auto !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                gap: 2px !important;
+                width: 56px !important; min-width: 56px !important; max-width: 56px !important;
+                height: 66px !important;
+                text-decoration: none !important;
+                color: #18191c !important;
+                font-size: 10px !important;
+                line-height: 12px !important;
+                cursor: pointer !important;
+            }
+            #my-bili-dyn-upbar .du-avatar {
+                width: 46px !important; height: 46px !important;
+                border-radius: 50% !important;
+                overflow: hidden !important;
+                background: #f1f2f3 !important;
+                flex-shrink: 0 !important;
+                display: block !important;
+                position: relative !important;
+            }
+            #my-bili-dyn-upbar .du-avatar img {
+                width: 100% !important; height: 100% !important;
+                object-fit: cover !important;
+                display: block !important;
+            }
+            #my-bili-dyn-upbar .du-avatar::after {
+                content: '' !important;
+                position: absolute !important;
+                inset: -2px !important;
+                border-radius: 50% !important;
+                border: 2px solid #00aeec !important;
+                display: none !important;
+            }
+            #my-bili-dyn-upbar .du-item.has-update .du-avatar::after {
+                display: block !important;
+            }
+            #my-bili-dyn-upbar .du-name {
+                display: block !important;
+                width: 100% !important;
+                text-align: center !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                font-size: 10px !important;
+                line-height: 12px !important;
+                max-width: 100% !important;
+            }
+            #my-bili-dyn-upbar .du-empty {
+                display: flex !important;
+                align-items: center !important; justify-content: center !important;
+                width: 100% !important; height: 100% !important;
+                color: #9499a0 !important;
+                font-size: 12px !important;
+            }
+
+            /* 动态页原站布局 */
+            body.bili-dynamic-page .bili-dyn-home--member {
+                display: block !important;
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important;
+                padding: 0 !important; margin: 0 !important;
+            }
+            body.bili-dynamic-page .bili-dyn-home--member > main {
+                display: block !important;
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important;
+                padding: 0 !important; margin: 0 !important;
+            }
+            body.bili-dynamic-page .bili-dyn-home--member > .left,
+            body.bili-dynamic-page .bili-dyn-home--member > .right,
+            body.bili-dynamic-page .bili-dyn-sidebar {
+                display: none !important;
+                width: 0 !important; height: 0 !important;
+                overflow: hidden !important;
+            }
+            body.bili-dynamic-page .bili-dyn-list,
+            body.bili-dynamic-page .bili-dyn-list__item,
+            body.bili-dynamic-page .bili-dyn-item {
+                width: 100% !important; max-width: 100% !important;
+                min-width: 0 !important;
+                padding-left: 0 !important; padding-right: 0 !important;
+                margin-left: 0 !important; margin-right: 0 !important;
+                box-sizing: border-box !important;
+            }
+            body.bili-dynamic-page .bili-dyn-list__item {
+                padding: 0 8px 8px 8px !important;
+            }
+            body.bili-dynamic-page .bili-dyn-item {
+                background: #ffffff !important;
+                border: 1px solid #e3e5e7 !important;
+                border-radius: 8px !important;
+                padding: 12px 8px 12px 8px !important;
+                box-sizing: border-box !important;
+                overflow: hidden !important;
+                display: block !important;
+            }
+            body.bili-dynamic-page .bili-dyn-item * { max-width: 100% !important; box-sizing: border-box !important; }
+            body.bili-dynamic-page .bili-dyn-item img,
+            body.bili-dynamic-page .bili-dyn-item video,
+            body.bili-dynamic-page .bili-dyn-item picture { max-width: 100% !important; height: auto !important; }
+
+            /* ============================================================
+               宽布局页最终覆盖（放在末尾，确保生效）
+               作用：让 html/body 恢复到能出现横向滚动条的状态
+               ============================================================ */
+            html:has(body.bili-wide-page) {
+                width: auto !important;
+                max-width: none !important;
+                min-width: 0 !important;
+                overflow-x: auto !important;
+                overflow-y: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #f1f2f3 !important;
+            }
+            html body.bili-wide-page,
+            html body.bili-wide-page.bili-space-page,
+            html body.bili-wide-page.bili-dynamic-page {
+                width: auto !important;
+                max-width: none !important;
+                min-width: 1240px !important;
+                overflow-x: auto !important;
+                overflow-y: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #f1f2f3 !important;
+            }
+            /* 内部容器保持原宽，不被压扁 */
+            html body.bili-wide-page #app,
+            html body.bili-wide-page #app > div,
+            html body.bili-wide-page #app > main,
+            html body.bili-wide-page main,
+            html body.bili-wide-page main > *,
+            html body.bili-wide-page .main-container,
+            html body.bili-wide-page .container,
+            html body.bili-wide-page .popular-container,
+            html body.bili-wide-page .history-container,
+            html body.bili-wide-page .favlist-container,
+            html body.bili-wide-page .fav-list-container,
+            html body.bili-wide-page .fav-lists,
+            html body.bili-wide-page .fav-main,
+            html body.bili-wide-page .fav-content,
+            html body.bili-wide-page .space-main,
+            html body.bili-wide-page .space-home,
+            html body.bili-wide-page .space-home > .content,
+            html body.bili-wide-page .bili-dyn-home--member,
+            html body.bili-wide-page .bili-dyn-home--member > main,
+            html body.bili-wide-page .bili-dyn-list {
+                min-width: 0 !important;
+                max-width: none !important;
+                width: auto !important;
+            }
+            /* 隐藏右侧可能出现的多余 sidebar，避免被压到右侧外面 */
+            html body.bili-wide-page [class*="right-sidebar"],
+            html body.bili-wide-page [class*="right-aside"],
+            html body.bili-wide-page .space-right,
+            html body.bili-wide-page .fav-sidebar {
+                display: none !important;
+            }
+            /* 宽布局页隐藏固定搜索栏，避免遮挡 */
+            html body.bili-wide-page #my-bili-searchbar {
+                display: none !important;
+            }
+            /* 自定义横向滚动条 */
+            html:has(body.bili-wide-page)::-webkit-scrollbar,
+            html body.bili-wide-page::-webkit-scrollbar {
+                width: 10px !important;
+                height: 10px !important;
+            }
+            html:has(body.bili-wide-page)::-webkit-scrollbar-track,
+            html body.bili-wide-page::-webkit-scrollbar-track {
+                background: #f1f2f3 !important;
+            }
+            html:has(body.bili-wide-page)::-webkit-scrollbar-thumb,
+            html body.bili-wide-page::-webkit-scrollbar-thumb {
+                background: rgba(0, 0, 0, 0.28) !important;
+                border-radius: 5px !important;
+            }
+            html:has(body.bili-wide-page)::-webkit-scrollbar-thumb:hover,
+            html body.bili-wide-page::-webkit-scrollbar-thumb:hover {
+                background: rgba(0, 0, 0, 0.42) !important;
+            }
+        `;
+        root.appendChild(style);
+    }
+
+    /* ============================================================
+       页面 class 同步
+       ============================================================ */
+    const PAGE_CLASS_RULES = [
+        { test: isMusicPage,    cls: ['bili-music-page'] },
+        { test: isSearchPage,   cls: ['bili-search-page'] },
+        { test: isTBiliDynamic, cls: ['bili-dynamic-page'] },
+        { test: isOpusPage,     cls: ['bili-opus-page'] },
+        { test: isHome,         cls: ['bili-home-page'] },
+        { test: isSpacePage,    cls: ['bili-space-page'] },
+        { test: isListPage,     cls: ['bili-video-page', 'bili-list-page'] },
+        { test: isVideoPage,    cls: ['bili-video-page'] },
+        { test: isBangumiPage,  cls: ['bili-bangumi-page'] },
+        { test: isLiveRoomPage, cls: ['bili-live-room-page'] }
+    ];
+    const ALL_PAGE_CLASSES = [
+        'bili-music-page', 'bili-search-page', 'bili-dynamic-page', 'bili-opus-page', 'bili-home-page',
+        'bili-space-page', 'bili-video-page', 'bili-list-page', 'bili-bangumi-page', 'bili-live-room-page'
+    ];
+
+    function currentPageClasses() {
+        for (let i = 0; i < PAGE_CLASS_RULES.length; i++) {
+            if (PAGE_CLASS_RULES[i].test()) return PAGE_CLASS_RULES[i].cls;
+        }
+        return [];
+    }
+    function syncPageClass() {
+        if (!document.body) return false;
+        const want = currentPageClasses();
+        const cl = document.body.classList;
+        ALL_PAGE_CLASSES.forEach(c => { if (want.indexOf(c) === -1) cl.remove(c); });
+        want.forEach(c => cl.add(c));
+        if (isWideLayoutPage()) cl.add('bili-wide-page');
+        else cl.remove('bili-wide-page');
+        return true;
+    }
+    function applyPageClassEarly() {
+        if (!syncPageClass()) {
+            const obs = new MutationObserver(() => { if (syncPageClass()) obs.disconnect(); });
+            obs.observe(document.documentElement, { childList: true, subtree: true });
+        }
+        window.addEventListener('popstate', syncPageClass);
+        ['pushState', 'replaceState'].forEach(fn => {
+            const orig = history[fn];
+            if (typeof orig !== 'function') return;
+            history[fn] = function () {
+                const ret = orig.apply(this, arguments);
+                setTimeout(syncPageClass, 0);
+                return ret;
+            };
+        });
+    }
+
+    function fixViewport() {
+        const apply = () => {
+            const root = document.head || document.documentElement;
+            if (!root) return;
+            let vp = document.querySelector('meta[name="viewport"]');
+            if (!vp) {
+                vp = document.createElement('meta');
+                vp.name = 'viewport';
+                root.appendChild(vp);
+            }
+            const content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
+            if (vp.getAttribute('content') !== content) vp.setAttribute('content', content);
+        };
+        apply();
+        [0, 50, 200, 500, 1000, 2000, 5000].forEach(t => setTimeout(apply, t));
+        document.addEventListener('DOMContentLoaded', apply);
+        window.addEventListener('load', apply);
+    }
+
+    /* ============================================================
+       视频页控制重排
+       ============================================================ */
+    function fixVideoControls() {
+        if (!isVideoPage() && !isBangumiPage() && !isListPage()) return;
+        if (fixVideoControls._done) return;
+
+        const playerContainer = document.querySelector('body.bili-video-page .bpx-player-container') ||
+                                 document.querySelector('body.bili-bangumi-page .bpx-player-container');
+        if (!playerContainer) return;
+        const videoArea = playerContainer.querySelector('.bpx-player-video-area');
+        if (!videoArea) return;
+        const videoPerch = videoArea.querySelector('.bpx-player-video-perch');
+        const videoWrap = (videoPerch && videoPerch.querySelector('.bpx-player-video-wrap'))
+                        || videoArea.querySelector('.bpx-player-video-wrap');
+        if (!videoWrap) return;
+        const video = videoWrap.querySelector('video');
+        if (!video) return;
+
+        if (videoWrap.parentElement === videoArea && videoArea.firstElementChild === videoWrap) {
+            fixVideoControls._done = true;
+            return;
+        }
+        if (videoPerch && videoWrap.parentElement !== videoArea) {
+            videoArea.insertBefore(videoWrap, videoPerch);
+        }
+        video.playsInline = true;
+
+        const oldControlWrap = videoArea.querySelector('.bpx-player-control-wrap:not(.new)');
+        if (!oldControlWrap) return;
+        const controlEntity = oldControlWrap.querySelector('.bpx-player-control-entity');
+        if (!controlEntity) return;
+
+        const controlWrap = document.createElement('div');
+        controlWrap.className = 'bpx-player-control-wrap new';
+        controlWrap.innerHTML = '<div class="bpx-player-control-mask"></div>';
+        videoArea.insertBefore(controlWrap, oldControlWrap);
+        controlWrap.appendChild(controlEntity);
+
+        fixVideoControls._done = true;
+    }
+
+    /* ============================================================
+       播放器悬停控制
+       ============================================================ */
+    function bindPlayerHoverControl() {
+        if (!isVideoPage() && !isBangumiPage()) return;
+        if (bindPlayerHoverControl._done) return;
+
+        const playerWrap = document.querySelector('body.bili-video-page #playerWrap') ||
+                           document.querySelector('body.bili-video-page #bilibili-player-wrap') ||
+                           document.querySelector('body.bili-bangumi-page #bilibili-player-wrap');
+        if (!playerWrap) { setTimeout(bindPlayerHoverControl, 500); return; }
+
+        const container = playerWrap.querySelector('.bpx-player-container');
+        if (!container) { setTimeout(bindPlayerHoverControl, 500); return; }
+        bindPlayerHoverControl._done = true;
+
+        let hideProgressTimer = null;
+
+        const setCtrlShown = (on) => {
+            try { container.setAttribute('ctrl-shown', on ? 'true' : 'false'); } catch (e) {}
+        };
+        const setProgressOpacity = (v) => {
+            const top = playerWrap.querySelector('.bpx-player-control-top');
+            const shadow = playerWrap.querySelector('.bpx-player-shadow-progress-area');
+            [top, shadow].forEach(function (el) {
+                if (el && el.style) el.style.setProperty('opacity', v, 'important');
+            });
+        };
+        const showProgress = () => setProgressOpacity('1');
+        const hideProgress = () => setProgressOpacity('0');
+
+        const scheduleHideProgress = () => {
+            clearTimeout(hideProgressTimer);
+            hideProgressTimer = setTimeout(function () { hideProgress(); }, 3000);
+        };
+
+        playerWrap.addEventListener('mouseenter', function () {
+            setCtrlShown(true); showProgress(); scheduleHideProgress();
+        });
+        playerWrap.addEventListener('mousemove', function () {
+            setCtrlShown(true); showProgress(); scheduleHideProgress();
+        });
+        playerWrap.addEventListener('mouseleave', function () {
+            clearTimeout(hideProgressTimer);
+            setCtrlShown(false); setProgressOpacity('');
+        });
+        playerWrap.addEventListener('touchstart', function () {
+            setCtrlShown(true); showProgress(); scheduleHideProgress();
+        }, { passive: true });
+    }
+
+    /* ============================================================
+       禁用 B 站原生小窗浮动播放器
+       ============================================================ */
+    function disableMiniPlayer() {
+        if (!isVideoPage() && !isBangumiPage()) return;
+        if (disableMiniPlayer._done) return;
+        disableMiniPlayer._done = true;
+
+        const strip = () => {
+            const container = document.querySelector('.bpx-player-container');
+            if (container) {
+                container.classList.remove('bpx-player-mini');
+                container.classList.remove('bpx-player-dock');
+                const screen = container.getAttribute('data-screen');
+                if (screen === 'mini' || screen === 'mini-screen') {
+                    container.setAttribute('data-screen', 'normal');
+                }
+            }
+            document.body.classList.remove('bpx-player-docked');
+            document.body.classList.remove('bpx-player-mini');
+            const dockers = document.querySelectorAll('.bpx-player-docker, .bpx-player-docker-body, .bpx-player-docker-wrap');
+            Array.prototype.forEach.call(dockers, function (el) {
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('position', 'static', 'important');
+                el.style.setProperty('left', 'auto', 'important');
+                el.style.setProperty('top', 'auto', 'important');
+                el.style.setProperty('right', 'auto', 'important');
+                el.style.setProperty('bottom', 'auto', 'important');
+                el.style.setProperty('width', '0', 'important');
+                el.style.setProperty('height', '0', 'important');
+                el.style.setProperty('transform', 'none', 'important');
+            });
+        };
+
+        strip();
+        [0, 200, 600, 1200, 2400, 5000].forEach(t => setTimeout(strip, t));
+
+        const mo = new MutationObserver(() => {
+            if (mo._t) clearTimeout(mo._t);
+            mo._t = setTimeout(strip, 60);
+        });
+        if (document.body) {
+            mo.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] });
+        }
+        const c = document.querySelector('.bpx-player-container');
+        if (c) mo.observe(c, { attributes: true, attributeFilter: ['class', 'data-screen', 'style'] });
+    }
+
+    function fixUpAvatar() {
+        if (!isVideoPage()) return;
+        const imgs = document.querySelectorAll('#viewbox_report img, .up-info__avatar img, .upinfo-avatar img');
+        Array.prototype.forEach.call(imgs, function (img) {
+            if (!img || !img.tagName || img.tagName.toLowerCase() !== 'img') return;
+            const real = img.getAttribute('data-src') || img.getAttribute('data-original');
+            if (real && (!img.src || img.src.indexOf('data:image') === 0 || img.naturalWidth === 0)) {
+                try { img.src = real; } catch (e) {}
+            }
+            if (!img.getAttribute('referrerpolicy')) {
+                img.setAttribute('referrerpolicy', 'no-referrer');
+            }
+        });
+    }
+
+    function bindVideoSlideGesture() {
+        if (!isVideoPage() && !isBangumiPage() && !isListPage()) return;
+        if (bindVideoSlideGesture._bound) return;
+        bindVideoSlideGesture._bound = true;
+
+        let mask = document.getElementById('my-bili-right-mask');
+        if (!mask) {
+            mask = document.createElement('div');
+            mask.id = 'my-bili-right-mask';
+            document.body.appendChild(mask);
+        }
+
+        function getPanel() {
+            if (isListPage()) return document.querySelector('body.bili-list-page .playlist-container--right');
+            if (isVideoPage()) return document.querySelector('body.bili-video-page .right-container');
+            if (isBangumiPage()) return document.querySelector('body.bili-bangumi-page .plp-r-wrap');
+            return null;
+        }
+        function isOpen() { const r = getPanel(); return r && r.classList.contains('show'); }
+        function openPanel() { const r = getPanel(); if (r) r.classList.add('show'); mask.classList.add('show'); }
+        function closePanel() { const r = getPanel(); if (r) r.classList.remove('show'); mask.classList.remove('show'); }
+
+        mask.addEventListener('click', closePanel);
+        let startX = 0, startY = 0, startTime = 0;
+
+        document.addEventListener('touchstart', e => {
+            if (e.touches.length !== 1) return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            startTime = Date.now();
+        }, { passive: true });
+
+        document.addEventListener('touchend', e => {
+            if (e.changedTouches.length !== 1) return;
+            const dx = e.changedTouches[0].clientX - startX;
+            const dy = e.changedTouches[0].clientY - startY;
+            const dt = Date.now() - startTime;
+            if (Math.abs(dy) > Math.abs(dx)) return;
+            if (dt > 600) return;
+            if (dx < -60 && !isOpen()) openPanel();
+            else if (dx > 60 && isOpen()) closePanel();
+        }, { passive: true });
+    }
+
+    /* ============================================================
+       全局滚轮
+       ============================================================ */
+    function bindGlobalWheelScroll() {
+        if (bindGlobalWheelScroll._done) return;
+        bindGlobalWheelScroll._done = true;
+
+        document.addEventListener('wheel', function (e) {
+            if (e.ctrlKey || e.metaKey) return;
+            if (e.defaultPrevented) return;
+            const t = e.target;
+            if (!t || !t.closest) return;
+
+            if (t.closest('#my-bili-bottom-nav, #my-bili-searchbar, #my-bili-mine-panel, #my-bili-dyn-upbar')) return;
+
+            let el = t;
+            while (el && el !== document.body && el !== document.documentElement) {
+                let cs = null;
+                try { cs = window.getComputedStyle(el); } catch (err) {}
+                if (cs) {
+                    const oy = cs.overflowY;
+                    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2) {
+                        return;
+                    }
+                }
+                el = el.parentElement;
+            }
+
+            let d = e.deltaY;
+            if (e.deltaMode === 1) d *= 16;
+            else if (e.deltaMode === 2) d *= Math.max(1, window.innerHeight);
+
+            const scroller = document.scrollingElement || document.documentElement;
+            const before = scroller.scrollTop;
+            scroller.scrollTop = before + d;
+            if (scroller.scrollTop !== before) e.preventDefault();
+        }, { passive: false, capture: true });
+    }
+
+    function bindPanelMouseDrag() {
+        if (bindPanelMouseDrag._done) return;
+        bindPanelMouseDrag._done = true;
+
+        let armed = false, sx = 0, sy = 0, st = 0;
+
+        const getPanel = function () {
+            if (isListPage()) return document.querySelector('body.bili-list-page .playlist-container--right');
+            if (isVideoPage()) return document.querySelector('body.bili-video-page .right-container');
+            if (isBangumiPage()) return document.querySelector('body.bili-bangumi-page .plp-r-wrap');
+            return null;
+        };
+        const isOpen = function () {
+            const r = getPanel();
+            return !!(r && r.classList.contains('show'));
+        };
+
+        document.addEventListener('mousedown', function (e) {
+            if (e.button !== 0) return;
+            if (!isVideoPage() && !isBangumiPage() && !isListPage()) return;
+            const t = e.target;
+            if (!t || !t.closest) return;
+            const panel = getPanel();
+            if (panel && panel.contains(t)) return;
+            const inPlayer = !!(t.closest('#playerWrap, #bilibili-player-wrap, .playlist-container--left, #mirror-vdcon'));
+            const fromEdge = e.clientX > window.innerWidth - 32;
+            if (!inPlayer && !fromEdge && !isOpen()) return;
+            armed = true;
+            sx = e.clientX; sy = e.clientY; st = Date.now();
+        }, true);
+
+        document.addEventListener('mouseup', function (e) {
+            if (!armed) return;
+            armed = false;
+            if (e.button !== 0) return;
+            if (Date.now() - st > 900) return;
+            const dx = e.clientX - sx;
+            const dy = e.clientY - sy;
+            if (Math.abs(dx) < 60) return;
+            if (Math.abs(dy) > Math.abs(dx)) return;
+            const panel = getPanel();
+            if (!panel) return;
+            const mask = document.getElementById('my-bili-right-mask');
+            if (dx < 0 && !isOpen()) { panel.classList.add('show'); if (mask) mask.classList.add('show'); }
+            else if (dx > 0 && isOpen()) { panel.classList.remove('show'); if (mask) mask.classList.remove('show'); }
+        }, true);
+    }
+
+    function bindFullscreenFix() {
+        if (!isVideoPage() && !isListPage()) return;
+        if (bindFullscreenFix._bound) return;
+        bindFullscreenFix._bound = true;
+
+        const handleChange = () => {
+            const isFull = !!(document.fullscreenElement || document.webkitFullscreenElement ||
+                              document.mozFullScreenElement || document.msFullscreenElement);
+            if (isFull) document.body.classList.add('video-fullscreen');
+            else document.body.classList.remove('video-fullscreen');
+        };
+        document.addEventListener('fullscreenchange', handleChange);
+        document.addEventListener('webkitfullscreenchange', handleChange);
+        document.addEventListener('mozfullscreenchange', handleChange);
+        document.addEventListener('MSFullscreenChange', handleChange);
+        document.addEventListener('orientationchange', () => {
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                setTimeout(handleChange, 100);
+            }
+        });
+    }
+
+    /* ============================================================
+       "我的"面板
+       ============================================================ */
+    const MINE_LINKS = [
+        { key: 'liked',    label: '我赞过',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.3-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.7-7 10-7 10z"/></svg>' },
+        { key: 'fav',      label: '收藏',     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.7-5.2 2.7 1-5.9-4.3-4.1 5.9-.9z"/></svg>' },
+        { key: 'history',  label: '历史',     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' },
+        { key: 'later',    label: '稍后再看', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' },
+        { key: 'settings', label: '设置',     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>' }
+    ];
+
+    function getMyMid() {
+        try {
+            const m = String(document.cookie || '').match(/(?:^|;\s*)DedeUserID=(\d+)/);
+            if (m && m[1]) return m[1];
+        } catch (e) {}
+        try {
+            const s = window.__INITIAL_STATE__;
+            if (s) {
+                const list = [s.mid, s.userMid, s.profile && s.profile.mid, s.userInfo && s.userInfo.mid, s.user && s.user.mid];
+                for (let i = 0; i < list.length; i++) if (list[i]) return String(list[i]);
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    function buildMineUrl(key) {
+        const mid = getMyMid();
+        const base = mid ? 'https://space.bilibili.com/' + mid : '';
+        switch (key) {
+            case 'liked':    return (base || 'https://space.bilibili.com/') + '/favlist?ftype=2';
+            case 'fav':      return (base || 'https://space.bilibili.com/') + '/favlist';
+            case 'history':  return 'https://www.bilibili.com/account/history';
+            case 'later':    return 'https://www.bilibili.com/watchlater/#/list';
+            case 'settings': return 'https://account.bilibili.com/account/home';
+        }
+        return 'https://www.bilibili.com/';
+    }
+
+    function createMinePanel() {
+        if (document.getElementById('my-bili-mine-panel')) return;
+        const panel = document.createElement('div');
+        panel.id = 'my-bili-mine-panel';
+        panel.innerHTML =
+            '<div class="mp-mask"></div>' +
+            '<div class="mp-sheet">' +
+                '<div class="mp-title">我的</div>' +
+                '<div class="mp-list">' +
+                    MINE_LINKS.map(function (x) {
+                        return '<a class="mp-item" data-key="' + x.key + '" href="' + buildMineUrl(x.key) + '">' +
+                            x.icon + '<span>' + x.label + '</span></a>';
+                    }).join('') +
+                '</div>' +
+                '<button class="mp-close" type="button">取消</button>' +
+            '</div>';
+        document.body.appendChild(panel);
+
+        panel.querySelector('.mp-mask').addEventListener('click', closeMinePanel);
+        panel.querySelector('.mp-close').addEventListener('click', closeMinePanel);
+        panel.addEventListener('click', function (e) {
+            const item = e.target && e.target.closest ? e.target.closest('.mp-item') : null;
+            if (!item) return;
+            const key = item.getAttribute('data-key');
+            item.setAttribute('href', buildMineUrl(key));
+            setTimeout(closeMinePanel, 50);
+        });
+    }
+
+    function openMinePanel() {
+        let panel = document.getElementById('my-bili-mine-panel');
+        if (!panel) { createMinePanel(); panel = document.getElementById('my-bili-mine-panel'); }
+        if (!panel) return;
+        panel.querySelectorAll('.mp-item').forEach(function (a) {
+            a.setAttribute('href', buildMineUrl(a.getAttribute('data-key')));
+        });
+        panel.classList.add('show');
+    }
+    function closeMinePanel() {
+        const panel = document.getElementById('my-bili-mine-panel');
+        if (panel) panel.classList.remove('show');
+    }
+
+    /* ============================================================
+       动态页顶栏（已删除箭头，仅保留可滚动列表）
+       ============================================================ */
+    function createDynamicUpBar() {
+        if (!isTBiliDynamic()) {
+            const old = document.getElementById('my-bili-dyn-upbar');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+            return;
+        }
+        let bar = document.getElementById('my-bili-dyn-upbar');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'my-bili-dyn-upbar';
+            document.body.appendChild(bar);
+        }
+
+        const items = document.querySelectorAll('.bili-dyn-item');
+        const seen = new Set();
+        const ups = [];
+
+        Array.prototype.forEach.call(items, function (item) {
+            let mid = '';
+            const link = item.querySelector('a[href*="space.bilibili.com/"]');
+            if (link) {
+                const m = (link.getAttribute('href') || '').match(/space\.bilibili\.com\/(\d+)/);
+                if (m) mid = m[1];
+            }
+            if (!mid || seen.has(mid)) return;
+            seen.add(mid);
+
+            const img = item.querySelector('.bili-dyn-item__avatar img, .bili-dyn-avatar img, .bili-dyn-item__header img, img.bili-avatar-img');
+            const nameEl = item.querySelector('.bili-dyn-title__text, .bili-dyn-item__header .bili-dyn-title, a.bili-dyn-title__text');
+            const name = nameEl ? (nameEl.textContent || '').trim() : '';
+
+            ups.push({
+                mid: mid,
+                name: name || 'UP',
+                avatar: img ? (img.src || img.getAttribute('data-src') || '') : '',
+                href: 'https://space.bilibili.com/' + mid
+            });
+        });
+
+        const sig = ups.map(function (u) { return u.mid; }).join(',');
+
+        if (!ups.length) {
+            if (bar._sig === 'empty') return;
+            bar._sig = 'empty';
+            bar.innerHTML = '<div class="du-scroll"><div class="du-empty">暂无更新</div></div>';
+            return;
+        }
+
+        if (bar._sig === sig) return;
+        bar._sig = sig;
+
+        bar.innerHTML =
+            '<div class="du-scroll">' +
+                ups.map(function (u) {
+                    return '<a class="du-item has-update" href="' + u.href + '" data-mid="' + u.mid + '">' +
+                        '<span class="du-avatar"><img src="' + u.avatar + '" alt="" referrerpolicy="no-referrer"></span>' +
+                        '<span class="du-name">' + (u.name.length > 6 ? u.name.slice(0, 6) : u.name) + '</span>' +
+                    '</a>';
+                }).join('') +
+            '</div>';
+    }
+
+    /* ============================================================
+       底栏
+       ============================================================ */
+    const BOTTOM_NAV_ID = 'my-bili-bottom-nav';
+    const BN_ICONS = {
+        home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.6 12 3.2l9 7.4"/><path d="M5.4 9.4V20.4h13.2V9.4"/><path d="M9.6 20.4v-5.6h4.8v5.6"/></svg>',
+        dynamic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5 3.6 14.2h8.2l-.8 7.3 9.4-11.7h-8.2z"/></svg>',
+        popular: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c3.5 3.2 5.5 6 5.5 9a5.5 5.5 0 0 1-11 0c0-1.3.4-2.4 1-3.4.6 1.2 1.4 1.9 2.3 1.9 1 0 1.6-.9 1.6-2.3 0-1.4.2-2.8.6-5.2z"/></svg>',
+        refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.4 12a8.4 8.4 0 1 1-2.5-6"/><path d="M20.6 4.4v5h-5"/></svg>',
+        mine: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.7"/><path d="M4.8 20.4c0-3.8 3.2-6 7.2-6s7.2 2.2 7.2 6"/></svg>'
+    };
+
+    function bottomNavActiveKey() {
+        const h = location.hostname, p = location.pathname;
+        if (h === 't.bilibili.com') return 'dynamic';
+        if (h === 'space.bilibili.com') {
+            const mid = getMyMid();
+            const cur = p.split('/').filter(Boolean)[0] || '';
+            return (!mid || cur === mid) ? 'mine' : '';
+        }
+        if (h === 'www.bilibili.com' || h === 'bilibili.com') {
+            if (/^\/v\/popular/.test(p)) return 'popular';
+            if (p === '/' || p === '/index.html' || p === '') return 'home';
+        }
+        return '';
+    }
+    function syncBottomNavActive() {
+        const nav = document.getElementById(BOTTOM_NAV_ID);
+        if (!nav) return;
+        const key = bottomNavActiveKey();
+        nav.querySelectorAll('.my-bn-item').forEach(function (item) {
+            item.classList.toggle('is-active', item.getAttribute('data-nav') === key);
+        });
+    }
+
+    function createBottomNav() {
+        if (!document.body) return;
+        if (isMusicPage()) {
+            const old = document.getElementById(BOTTOM_NAV_ID);
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+            return;
+        }
+        if (document.getElementById(BOTTOM_NAV_ID)) { syncBottomNavActive(); return; }
+
+        const nav = document.createElement('nav');
+        nav.id = BOTTOM_NAV_ID;
+        nav.innerHTML =
+            '<a class="my-bn-item" data-nav="home" href="https://www.bilibili.com/">' +
+                '<span class="my-bn-icon">' + BN_ICONS.home + '</span>' +
+                '<span class="my-bn-text">首页</span></a>' +
+            '<a class="my-bn-item" data-nav="dynamic" href="https://t.bilibili.com/">' +
+                '<span class="my-bn-icon">' + BN_ICONS.dynamic + '</span>' +
+                '<span class="my-bn-text">动态</span></a>' +
+            '<a class="my-bn-item" data-nav="popular" href="https://www.bilibili.com/v/popular/all">' +
+                '<span class="my-bn-icon">' + BN_ICONS.popular + '</span>' +
+                '<span class="my-bn-text">热门</span></a>' +
+            '<button type="button" class="my-bn-item" data-nav="refresh">' +
+                '<span class="my-bn-icon">' + BN_ICONS.refresh + '</span>' +
+                '<span class="my-bn-text">刷新</span></button>' +
+            '<button type="button" class="my-bn-item" data-nav="mine">' +
+                '<span class="my-bn-icon">' + BN_ICONS.mine + '</span>' +
+                '<span class="my-bn-text">我的</span></button>';
+        document.body.appendChild(nav);
+
+        nav.addEventListener('click', function (e) {
+            const item = e.target && e.target.closest ? e.target.closest('.my-bn-item') : null;
+            if (!item) return;
+            const key = item.getAttribute('data-nav');
+            if (key === 'refresh') {
+                e.preventDefault();
+                const icon = item.querySelector('.my-bn-icon');
+                if (icon) {
+                    icon.classList.add('spinning');
+                    setTimeout(function () { icon.classList.remove('spinning'); }, 800);
+                }
+                setTimeout(function () {
+                    try { location.reload(); } catch (err) { location.href = location.href; }
+                }, 240);
+            } else if (key === 'mine') {
+                e.preventDefault();
+                openMinePanel();
+            }
+        });
+        syncBottomNavActive();
+    }
+
+    window.addEventListener('popstate', function () {
+        setTimeout(syncBottomNavActive, 0);
+    });
+
+    /* ============================================================
+       搜索栏
+       ============================================================ */
+    const SEARCH_TYPES = [
+        { key: 'all',     name: '综合', path: '/all' },
+        { key: 'live',    name: '直播', path: '/live' },
+        { key: 'article', name: '专栏', path: '/article' },
+        { key: 'upuser',  name: '用户', path: '/upuser' }
+    ];
+
+    function currentSearchType() {
+        const p = location.pathname.replace(/\/$/, '') || '/';
+        let t = 'all';
+        SEARCH_TYPES.forEach(function (x) { if (p === x.path) t = x.key; });
+        return t;
+    }
+
+    function createSearchBar() {
+        if (!isHome() && !isSearchPage() && !isSpacePage()) return;
+        if (createSearchBar._started) return;
+        createSearchBar._started = true;
+        if (document.getElementById('my-bili-searchbar')) return;
+
+        const onSearch = isSearchPage();
+        const onSpace = isSpacePage();
+        const url = new URL(location.href);
+        const curType = currentSearchType();
+        const onUpuser = onSearch && curType === 'upuser';
+        const bar = document.createElement('div');
+        bar.id = 'my-bili-searchbar';
+        const showLeftBtn = !onSpace && !onUpuser;
+
+        let leftBtnHTML = '';
+        if (showLeftBtn) {
+            if (onSearch) {
+                leftBtnHTML = '<label id="my-bili-order-btn" for="my-bili-order-cb" role="button" tabindex="0" aria-label="排序">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M6 12h12"/><path d="M10 18h4"/></svg></label>';
+            } else {
+                leftBtnHTML = '<a id="my-bili-dynamic-btn" href="https://t.bilibili.com/" aria-label="动态">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></a>';
+            }
+        }
+        let switchBtnHTML = '';
+        let menuHTML = '';
+        if (onSearch) {
+            switchBtnHTML = '<label id="my-bili-switch-btn" for="my-bili-switch-cb" role="button" tabindex="0" aria-label="切换搜索类型">' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>' +
+                '<rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></label>';
+
+            const orderItems = curType === 'live'
+                ? [{ v: '', n: '综合' }, { v: 'live_time', n: '最新' }]
+                : [{ v: '', n: '综合' }, { v: 'pubdate', n: '最新' }];
+            const currentOrder = url.searchParams.get('order') || '';
+            const isLatest = curType === 'live' ? (currentOrder === 'live_time') : (currentOrder === 'pubdate');
+            menuHTML = (onUpuser ? '' :
+                '<div class="my-bili-menu-row" id="my-bili-order-row">' +
+                    orderItems.map(function (o) {
+                        return '<a class="my-bili-menu-item' + (!!o.v === isLatest ? ' is-current' : '') + '" href="#" data-order="' + o.v + '">' + o.n + '</a>';
+                    }).join('') +
+                '</div>') +
+                '<div class="my-bili-menu-row" id="my-bili-switch-row">' +
+                    SEARCH_TYPES.map(function (t) {
+                        return '<a class="my-bili-menu-item' + (t.key === curType ? ' is-current' : '') + '" href="#" data-type="' + t.key + '">' + t.name + '</a>';
+                    }).join('') +
+                '</div>';
+        }
+        const cbHTML = !onSearch ? '' :
+            (onUpuser ? '' : '<input type="checkbox" id="my-bili-order-cb" class="my-bili-menu-cb">') +
+            '<input type="checkbox" id="my-bili-switch-cb" class="my-bili-menu-cb">';
+
+        const placeholderText = onSpace ? '搜索视频、动态'
+            : '搜索视频、番剧、UP主...（用 -词 排除）';
+        const kw = onSearch ? (url.searchParams.get('keyword') || '') : '';
+        const escapedKw = kw.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        bar.innerHTML = cbHTML + leftBtnHTML +
+            '<div class="my-search-wrap">' +
+                '<input type="search" id="my-bili-search-input" placeholder="' + placeholderText + '" autocomplete="off" value="' + escapedKw + '" />' +
+                '<button class="my-search-btn" aria-label="搜索">' +
+                    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="16.5" y1="16.5" x2="21" y2="21"></line></svg>' +
+                '</button>' +
+            '</div>' +
+            switchBtnHTML + menuHTML;
+
+        const attach = () => {
+            if (!document.body) { setTimeout(attach, 50); return; }
+            Array.prototype.slice.call(document.querySelectorAll('#my-bili-searchbar'))
+                .forEach(function (el) { if (el !== bar && el.parentNode) el.parentNode.removeChild(el); });
+            document.body.appendChild(bar);
+
+            const input = bar.querySelector('#my-bili-search-input');
+            const btn = bar.querySelector('.my-search-btn');
+
+            const parseQueryTokens = function (raw) {
+                const tokens = String(raw || '').split(/\s+/).filter(Boolean);
+                const include = [], exclude = [];
+                tokens.forEach(function (t) {
+                    if (t.length > 1 && t.charAt(0) === '-') exclude.push(t.slice(1));
+                    else if (t.length > 1 && t.charAt(0) === '+') include.push(t.slice(1));
+                    else include.push(t);
+                });
+                return { include: include, exclude: exclude };
+            };
+
+            const doSearch = () => {
+                const parsed = parseQueryTokens(input.value.trim());
+                const keyword = parsed.include.join(' ');
+                if (!keyword) return;
+                if (onSpace) {
+                    const mid = location.pathname.split('/').filter(Boolean)[0] || '';
+                    if (!mid || !/^\d+$/.test(mid)) return;
+                    location.href = `https://space.bilibili.com/${mid}/search?keyword=${encodeURIComponent(keyword)}`;
+                    return;
+                }
+                const ct = currentSearchType();
+                let base = 'https://search.bilibili.com/all';
+                SEARCH_TYPES.forEach(function (t) { if (t.key === ct) base = 'https://search.bilibili.com' + t.path; });
+                const next = new URL(base);
+                next.searchParams.set('keyword', keyword);
+                if (ct !== 'all') {
+                    next.searchParams.set('vt', '63088886');
+                    next.searchParams.set('from_source', 'web_search');
+                }
+                if (ct === 'live') next.searchParams.set('search_type', 'live_room');
+                location.href = next.toString();
+            };
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); doSearch(); }
+            });
+            btn.addEventListener('click', doSearch);
+
+            const allCb = () => bar.querySelectorAll('.my-bili-menu-cb');
+            const clearMarks = () => {
+                bar.querySelectorAll('.my-bili-menu-row').forEach(function (r) { r.classList.remove('is-open'); });
+                bar.querySelectorAll('#my-bili-order-btn, #my-bili-switch-btn').forEach(function (b) { b.classList.remove('is-open'); });
+            };
+            const closeAll = () => { allCb().forEach(function (o) { o.checked = false; }); clearMarks(); };
+            const setOpen = function (cb, open) {
+                allCb().forEach(function (o) { o.checked = false; });
+                clearMarks();
+                cb.checked = !!open;
+                if (!open || !cb.id) return;
+                const base = cb.id.replace(/-cb$/, '');
+                const row = bar.querySelector('#' + base + '-row');
+                const btn = bar.querySelector('#' + base + '-btn');
+                if (row) row.classList.add('is-open');
+                if (btn) btn.classList.add('is-open');
+            };
+            bar.querySelectorAll('label[for]').forEach(function (lb) {
+                lb.addEventListener('click', function (e) {
+                    const cb = bar.querySelector('#' + lb.getAttribute('for'));
+                    if (!cb) return;
+                    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                    setOpen(cb, !cb.checked);
+                });
+            });
+            document.addEventListener('click', function (e) {
+                if (bar.contains(e.target)) return;
+                closeAll();
+            });
+            bar.querySelectorAll('.my-bili-menu-item').forEach(function (a) {
+                a.addEventListener('click', function () { setTimeout(closeAll, 0); });
+            });
+        };
+        attach();
+    }
+
+    function hideWatchLaterButtons() {
+        if (!document.querySelectorAll) return;
+        const all = document.querySelectorAll('body *');
+        for (let i = 0; i < all.length; i++) {
+            const el = all[i];
+            if (!el.classList) continue;
+            if (el.classList.contains('bili-hide-watch-later')) continue;
+            let hit = false;
+            const cls = el.className || '';
+            const clsStr = typeof cls === 'string' ? cls : String(cls || '');
+            let aria = '';
+            try {
+                aria = (el.getAttribute && (el.getAttribute('aria-label') || '')) + ' ' +
+                       (el.getAttribute && (el.getAttribute('title') || ''));
+            } catch (e) { aria = ''; }
+            const hay = (clsStr + ' ' + aria).toLowerCase();
+            ['watch-later', 'watchlater', '稍后再看'].forEach(function (k) {
+                if (hay.indexOf(k) !== -1) hit = true;
+            });
+            if (!hit) {
+                const txt = ((el.textContent || '') + '').trim();
+                if (txt !== '稍后再看') continue;
+            }
+            let w = 0, h = 0;
+            try {
+                const r = el.getBoundingClientRect();
+                w = r.width; h = r.height;
+            } catch (e) { continue; }
+            if (w > 120 || h > 120) continue;
+            if (w === 0 && h === 0) continue;
+            el.classList.add('bili-hide-watch-later');
+        }
+    }
+
+    function fixSpaceNavTabs() {
+        if (!isSpacePage()) return;
+        const allowedTabs = ['主页', '动态', '投稿', '合集和系列'];
+        document.querySelectorAll('body.bili-space-page .nav-tab > a.nav-tab__item').forEach(el => {
+            const text = (el.textContent || '').trim();
+            el.style.removeProperty('display');
+            el.style.removeProperty('visibility');
+            const isAllowed = allowedTabs.some(t => text.indexOf(t) !== -1);
+            if (!isAllowed) {
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('visibility', 'hidden', 'important');
+            }
+        });
+    }
+
+    /* ============================================================
+       run
+       ============================================================ */
+    function run() {
+        if (!document.body) return;
+        syncPageClass();
+        createSearchBar();
+        createBottomNav();
+        syncBottomNavActive();
+        hideWatchLaterButtons();
+
+        if (isTBiliDynamic()) {
+            createDynamicUpBar();
+        } else if (isOpusPage()) {
+            /* opus */
+        } else if (isHome()) {
+            /* home */
+        } else if (isSearchPage()) {
+            /* search */
+        } else if (isSpacePage()) {
+            fixSpaceNavTabs();
+        } else if (isVideoPage() || isListPage()) {
+            fixVideoControls();
+            bindVideoSlideGesture();
+            bindFullscreenFix();
+            bindPlayerHoverControl();
+            disableMiniPlayer();
+            if (isVideoPage()) fixUpAvatar();
+        } else if (isBangumiPage()) {
+            fixVideoControls();
+            bindVideoSlideGesture();
+            bindPlayerHoverControl();
+            disableMiniPlayer();
+        } else if (isLiveRoomPage()) {
+            /* 直播间 */
+        }
+    }
+
+    /* ============================================================
+       启动
+       ============================================================ */
+    function start() {
+        injectStyle();
+        applyPageClassEarly();
+        fixViewport();
+        createSearchBar();
+        bindGlobalWheelScroll();
+        bindPanelMouseDrag();
+
+        const runAll = () => {
+            run();
+            setTimeout(run, 300);
+            setTimeout(run, 800);
+            setTimeout(run, 1500);
+            setTimeout(run, 3000);
+            setTimeout(run, 5000);
+            setTimeout(run, 8000);
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', runAll);
+        } else {
+            runAll();
+        }
+        window.addEventListener('load', runAll);
+
+        const observer = new MutationObserver(() => {
+            if (observer._t) clearTimeout(observer._t);
+            observer._t = setTimeout(() => { run(); }, 200);
+        });
+        const observeStart = () => {
+            if (!document.body) { setTimeout(observeStart, 50); return; }
+            observer.observe(document.body, { childList: true, subtree: true });
+        };
+        observeStart();
+    }
+
+    start();
+})();
